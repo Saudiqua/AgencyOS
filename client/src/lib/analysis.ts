@@ -1,27 +1,21 @@
-import { type AccountInput, type AnalysisResult } from "@shared/schema";
+import type { AccountInput, AnalysisResult, SignalLevel } from "@shared/schema";
 import { randomUUID } from "crypto";
 
-export interface IStorage {
-  createAnalysis(input: AccountInput): Promise<AnalysisResult>;
-  getAnalysis(id: string): Promise<AnalysisResult | undefined>;
-  getAllAnalyses(): Promise<AnalysisResult[]>;
-}
-
-type SignalLevel = "low" | "moderate" | "elevated" | "high";
-
-function evaluateRetainerReality(input: AccountInput["retainerReality"]): {
+type SignalResult = {
   level: SignalLevel;
   score: number;
   explanation: string;
   factors: string[];
   recommendations: string[];
-} {
+};
+
+export function evaluateRetainerReality(input: AccountInput["retainerReality"]): SignalResult {
   let score = 0;
   const factors: string[] = [];
   const recommendations: string[] = [];
 
-  const hoursRatio = input.scopedHoursPerMonth > 0 
-    ? input.actualHoursDelivered / input.scopedHoursPerMonth 
+  const hoursRatio = input.scopedHoursPerMonth > 0
+    ? input.actualHoursDelivered / input.scopedHoursPerMonth
     : 1;
 
   if (hoursRatio > 1.3) {
@@ -40,7 +34,7 @@ function evaluateRetainerReality(input: AccountInput["retainerReality"]): {
     constantly: 40,
   };
   score += seniorScores[input.seniorInvolvementFrequency];
-  
+
   if (input.seniorInvolvementFrequency === "frequently" || input.seniorInvolvementFrequency === "constantly") {
     factors.push("Senior staff involvement exceeds strategic oversight level");
     recommendations.push("Evaluate team capability gaps or scope complexity mismatch");
@@ -83,13 +77,7 @@ function evaluateRetainerReality(input: AccountInput["retainerReality"]): {
   };
 }
 
-function evaluateDeliveryDrift(input: AccountInput["deliveryDrift"]): {
-  level: SignalLevel;
-  score: number;
-  explanation: string;
-  factors: string[];
-  recommendations: string[];
-} {
+export function evaluateDeliveryDrift(input: AccountInput["deliveryDrift"]): SignalResult {
   let score = 0;
   const factors: string[] = [];
   const recommendations: string[] = [];
@@ -128,7 +116,7 @@ function evaluateDeliveryDrift(input: AccountInput["deliveryDrift"]): {
     constant: 35,
   };
   score += overtimeScores[input.teamOvertime];
-  
+
   if (input.teamOvertime === "regular" || input.teamOvertime === "constant") {
     factors.push("Team overtime pattern indicates sustained capacity pressure");
     recommendations.push("Assess workload distribution and resource allocation");
@@ -141,7 +129,7 @@ function evaluateDeliveryDrift(input: AccountInput["deliveryDrift"]): {
     absent: 25,
   };
   score += processScores[input.processAdherenceLevel];
-  
+
   if (input.processAdherenceLevel === "weak" || input.processAdherenceLevel === "absent") {
     factors.push("Process discipline has eroded, increasing risk of errors and rework");
     recommendations.push("Reinforce core delivery processes before they degrade further");
@@ -169,13 +157,7 @@ function evaluateDeliveryDrift(input: AccountInput["deliveryDrift"]): {
   };
 }
 
-function evaluateClientRisk(input: AccountInput["clientRisk"]): {
-  level: SignalLevel;
-  score: number;
-  explanation: string;
-  factors: string[];
-  recommendations: string[];
-} {
+export function evaluateClientRisk(input: AccountInput["clientRisk"]): SignalResult {
   let score = 0;
   const factors: string[] = [];
   const recommendations: string[] = [];
@@ -187,7 +169,7 @@ function evaluateClientRisk(input: AccountInput["clientRisk"]): {
     poor: 35,
   };
   score += accessScores[input.stakeholderAccessibility];
-  
+
   if (input.stakeholderAccessibility === "limited" || input.stakeholderAccessibility === "poor") {
     factors.push("Limited stakeholder access creates decision bottlenecks and misalignment risk");
     recommendations.push("Request regular check-in cadence or escalation path clarification");
@@ -200,7 +182,7 @@ function evaluateClientRisk(input: AccountInput["clientRisk"]): {
     negative: 40,
   };
   score += feedbackScores[input.feedbackTone];
-  
+
   if (input.feedbackTone === "mixed") {
     factors.push("Mixed feedback signals potential dissatisfaction that hasn't crystallized");
     recommendations.push("Schedule candid relationship review to surface underlying concerns");
@@ -216,7 +198,7 @@ function evaluateClientRisk(input: AccountInput["clientRisk"]): {
     very_slow: 20,
   };
   score += responseScores[input.responseTimeToRequests];
-  
+
   if (input.responseTimeToRequests === "slow" || input.responseTimeToRequests === "very_slow") {
     factors.push("Slow client response times may indicate disengagement or internal issues");
   }
@@ -228,7 +210,7 @@ function evaluateClientRisk(input: AccountInput["clientRisk"]): {
     constant: 25,
   };
   score += creepScores[input.scopeCreepBehaviour];
-  
+
   if (input.scopeCreepBehaviour === "frequent" || input.scopeCreepBehaviour === "constant") {
     factors.push("Persistent scope creep suggests unclear boundaries or unrealistic expectations");
     recommendations.push("Clarify scope boundaries in writing and implement change request process");
@@ -241,7 +223,7 @@ function evaluateClientRisk(input: AccountInput["clientRisk"]): {
     very_delayed: 30,
   };
   score += paymentScores[input.paymentBehaviour];
-  
+
   if (input.paymentBehaviour === "delayed" || input.paymentBehaviour === "very_delayed") {
     factors.push("Payment delays may indicate budget issues or relationship problems");
     recommendations.push("Address payment terms directly and assess client financial stability");
@@ -278,10 +260,10 @@ function evaluateClientRisk(input: AccountInput["clientRisk"]): {
   };
 }
 
-function generateOverallAssessment(
-  retainer: ReturnType<typeof evaluateRetainerReality>,
-  drift: ReturnType<typeof evaluateDeliveryDrift>,
-  client: ReturnType<typeof evaluateClientRisk>
+export function generateOverallAssessment(
+  retainer: SignalResult,
+  drift: SignalResult,
+  client: SignalResult
 ): {
   level: SignalLevel;
   summary: string;
@@ -341,11 +323,11 @@ function generateOverallAssessment(
   };
 }
 
-function generateMarkdownReport(
+export function generateMarkdownReport(
   input: AccountInput,
-  retainer: ReturnType<typeof evaluateRetainerReality>,
-  drift: ReturnType<typeof evaluateDeliveryDrift>,
-  client: ReturnType<typeof evaluateClientRisk>,
+  retainer: SignalResult,
+  drift: SignalResult,
+  client: SignalResult,
   overall: ReturnType<typeof generateOverallAssessment>,
   date: string
 ): string {
@@ -358,7 +340,7 @@ function generateMarkdownReport(
 
   let md = `# Account Diagnostic Report: ${input.accountName}\n\n`;
   md += `**Analysis Date:** ${new Date(date).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}\n\n`;
-  
+
   if (input.clientIndustry) {
     md += `**Industry:** ${input.clientIndustry}\n`;
   }
@@ -445,53 +427,40 @@ function generateMarkdownReport(
   return md;
 }
 
-export class MemStorage implements IStorage {
-  private analyses: Map<string, AnalysisResult>;
-
-  constructor() {
-    this.analyses = new Map();
-  }
-
-  async createAnalysis(input: AccountInput): Promise<AnalysisResult> {
-    const id = randomUUID();
-    const analysisDate = new Date().toISOString();
-
-    const retainerSignal = evaluateRetainerReality(input.retainerReality);
-    const driftSignal = evaluateDeliveryDrift(input.deliveryDrift);
-    const clientSignal = evaluateClientRisk(input.clientRisk);
-    const overall = generateOverallAssessment(retainerSignal, driftSignal, clientSignal);
-
-    const markdownReport = generateMarkdownReport(
-      input,
-      retainerSignal,
-      driftSignal,
-      clientSignal,
-      overall,
-      analysisDate
-    );
-
-    const result: AnalysisResult = {
-      id,
-      accountName: input.accountName,
-      analysisDate,
-      retainerRealitySignal: retainerSignal,
-      deliveryDriftSignal: driftSignal,
-      clientRiskSignal: clientSignal,
-      overallAssessment: overall,
-      markdownReport,
-    };
-
-    this.analyses.set(id, result);
-    return result;
-  }
-
-  async getAnalysis(id: string): Promise<AnalysisResult | undefined> {
-    return this.analyses.get(id);
-  }
-
-  async getAllAnalyses(): Promise<AnalysisResult[]> {
-    return Array.from(this.analyses.values());
-  }
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
 }
 
-export const storage = new MemStorage();
+export function createAnalysis(input: AccountInput): AnalysisResult {
+  const id = generateUUID();
+  const analysisDate = new Date().toISOString();
+
+  const retainerSignal = evaluateRetainerReality(input.retainerReality);
+  const driftSignal = evaluateDeliveryDrift(input.deliveryDrift);
+  const clientSignal = evaluateClientRisk(input.clientRisk);
+  const overall = generateOverallAssessment(retainerSignal, driftSignal, clientSignal);
+
+  const markdownReport = generateMarkdownReport(
+    input,
+    retainerSignal,
+    driftSignal,
+    clientSignal,
+    overall,
+    analysisDate
+  );
+
+  return {
+    id,
+    accountName: input.accountName,
+    analysisDate,
+    retainerRealitySignal: retainerSignal,
+    deliveryDriftSignal: driftSignal,
+    clientRiskSignal: clientSignal,
+    overallAssessment: overall,
+    markdownReport,
+  };
+}

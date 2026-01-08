@@ -1,5 +1,5 @@
 import { useParams, Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +7,8 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Shield, ArrowLeft, Download, FileText, Plus, TrendingUp, ArrowRight, Users, AlertCircle } from "lucide-react";
 import type { AnalysisResult, SignalLevel } from "@shared/schema";
+import { getReport } from "@/lib/storage";
+import { generatePdf } from "@/lib/pdf-generator";
 
 function SignalLevelBadge({ level }: { level: SignalLevel }) {
   const variants: Record<SignalLevel, string> = {
@@ -114,35 +116,45 @@ function ReportSkeleton() {
 
 export default function Report() {
   const params = useParams<{ id: string }>();
-  
-  const { data: report, isLoading, isError } = useQuery<AnalysisResult>({
-    queryKey: ["/api/reports", params.id],
-  });
+  const [report, setReport] = useState<AnalysisResult | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
 
-  const handleDownloadPdf = async () => {
-    if (!params.id) return;
-    
+  useEffect(() => {
+    if (!params.id) {
+      setIsError(true);
+      setIsLoading(false);
+      return;
+    }
+
     try {
-      const response = await fetch(`/api/reports/${params.id}/pdf`);
-      if (!response.ok) throw new Error("Download failed");
-      
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${report?.accountName || "report"}-diagnostic.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      const loadedReport = getReport(params.id);
+      if (loadedReport) {
+        setReport(loadedReport);
+      } else {
+        setIsError(true);
+      }
     } catch (error) {
-      console.error("Download error:", error);
+      console.error("Error loading report:", error);
+      setIsError(true);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [params.id]);
+
+  const handleDownloadPdf = () => {
+    if (!report) return;
+
+    try {
+      generatePdf(report.markdownReport, report.accountName);
+    } catch (error) {
+      console.error("PDF generation error:", error);
     }
   };
 
-  const handleDownloadMarkdown = async () => {
+  const handleDownloadMarkdown = () => {
     if (!report?.markdownReport) return;
-    
+
     const blob = new Blob([report.markdownReport], { type: "text/markdown" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");

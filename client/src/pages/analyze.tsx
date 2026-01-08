@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -14,7 +13,8 @@ import { Switch } from "@/components/ui/switch";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Shield, ArrowLeft, ArrowRight, Loader2, Check } from "lucide-react";
 import { accountInputSchema, type AccountInput } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { createAnalysis } from "@/lib/analysis";
+import { saveReport } from "@/lib/storage";
 
 const steps = [
   { id: 1, title: "Account Details", description: "Basic information about the client account" },
@@ -61,19 +61,28 @@ export default function Analyze() {
     },
   });
 
-  const analysisMutation = useMutation({
-    mutationFn: async (data: AccountInput) => {
-      const response = await apiRequest("POST", "/api/analyze", data);
-      return await response.json();
-    },
-    onSuccess: (data) => {
-      setLocation(`/report/${data.id}`);
-    },
-  });
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (data: AccountInput) => {
+    setIsProcessing(true);
+    setError(null);
+
+    try {
+      const result = createAnalysis(data);
+      saveReport(result);
+      setLocation(`/report/${result.id}`);
+    } catch (err) {
+      console.error("Analysis error:", err);
+      setError("An error occurred while generating the report. Please try again.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const nextStep = async () => {
     let fieldsToValidate: (keyof AccountInput)[] = [];
-    
+
     if (currentStep === 1) {
       fieldsToValidate = ["accountName", "accountTenure", "teamSize"];
     } else if (currentStep === 2) {
@@ -88,7 +97,7 @@ export default function Analyze() {
     if (isValid && currentStep < 4) {
       setCurrentStep(currentStep + 1);
     } else if (isValid && currentStep === 4) {
-      form.handleSubmit((data) => analysisMutation.mutate(data))();
+      form.handleSubmit((data) => handleSubmit(data))();
     }
   };
 
@@ -715,13 +724,13 @@ export default function Analyze() {
                   Step {currentStep} of {steps.length}
                 </div>
 
-                <Button 
+                <Button
                   type="button"
                   onClick={nextStep}
-                  disabled={analysisMutation.isPending}
+                  disabled={isProcessing}
                   data-testid="button-next"
                 >
-                  {analysisMutation.isPending ? (
+                  {isProcessing ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                       Analyzing...
@@ -740,9 +749,9 @@ export default function Analyze() {
                 </Button>
               </div>
 
-              {analysisMutation.isError && (
+              {error && (
                 <div className="mt-4 p-4 rounded-md bg-destructive/10 text-destructive text-sm" data-testid="text-error">
-                  An error occurred while generating the report. Please try again.
+                  {error}
                 </div>
               )}
             </form>
