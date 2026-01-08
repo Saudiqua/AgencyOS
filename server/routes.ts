@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { accountInputSchema } from "@shared/schema";
 import { z } from "zod";
 import PDFDocument from "pdfkit";
-import MarkdownIt from "markdown-it";
+import type PDFKit from "pdfkit";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -90,7 +90,7 @@ export async function registerRoutes(
   return httpServer;
 }
 
-function generatePdf(doc: PDFDocument, markdown: string, accountName: string): void {
+function generatePdf(doc: PDFKit.PDFDocument, markdown: string, accountName: string): void {
   const lines = markdown.split('\n');
   let currentY = doc.y;
   const pageWidth = doc.page.width - 100;
@@ -221,7 +221,7 @@ function processBoldItalic(text: string): Array<{ text: string; bold?: boolean; 
   return parts;
 }
 
-function renderFormattedText(doc: PDFDocument, parts: Array<{ text: string; bold?: boolean; italic?: boolean }>, x: number, width: number): void {
+function renderFormattedText(doc: PDFKit.PDFDocument, parts: Array<{ text: string; bold?: boolean; italic?: boolean }>, x: number, width: number): void {
   doc.x = x;
 
   for (let i = 0; i < parts.length; i++) {
