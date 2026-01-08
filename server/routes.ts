@@ -3,6 +3,8 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { accountInputSchema } from "@shared/schema";
 import { z } from "zod";
+import PDFDocument from "pdfkit";
+import MarkdownIt from "markdown-it";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -48,17 +50,27 @@ export async function registerRoutes(
     try {
       const { id } = req.params;
       const report = await storage.getAnalysis(id);
-      
+
       if (!report) {
         res.status(404).json({ error: "Report not found" });
         return;
       }
-      
-      const htmlContent = generatePdfHtml(report.markdownReport, report.accountName);
-      
-      res.setHeader("Content-Type", "text/html");
-      res.setHeader("Content-Disposition", `attachment; filename="${report.accountName}-diagnostic.html"`);
-      res.send(htmlContent);
+
+      const filename = `${report.accountName.replace(/[^a-z0-9]/gi, '_')}-diagnostic.pdf`;
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
+      const doc = new PDFDocument({
+        margin: 50,
+        size: 'A4'
+      });
+
+      doc.pipe(res);
+
+      generatePdf(doc, report.markdownReport, report.accountName);
+
+      doc.end();
     } catch (error) {
       console.error("PDF generation error:", error);
       res.status(500).json({ error: "Failed to generate PDF" });
@@ -78,58 +90,158 @@ export async function registerRoutes(
   return httpServer;
 }
 
-function generatePdfHtml(markdown: string, accountName: string): string {
-  const htmlContent = markdown
-    .replace(/^# (.+)$/gm, '<h1 style="font-size: 24px; font-weight: 600; margin-bottom: 16px; color: #1a1a1a;">$1</h1>')
-    .replace(/^## (.+)$/gm, '<h2 style="font-size: 20px; font-weight: 600; margin-top: 24px; margin-bottom: 12px; color: #1a1a1a;">$1</h2>')
-    .replace(/^### (.+)$/gm, '<h3 style="font-size: 16px; font-weight: 600; margin-top: 20px; margin-bottom: 8px; color: #1a1a1a;">$1</h3>')
-    .replace(/^\*\*(.+?)\*\*$/gm, '<p style="font-weight: 600; margin-top: 12px; margin-bottom: 4px;">$1</p>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em style="color: #666;">$1</em>')
-    .replace(/^- (.+)$/gm, '<li style="margin-left: 20px; margin-bottom: 4px; color: #333;">$1</li>')
-    .replace(/^(\d+)\. (.+)$/gm, '<li style="margin-left: 20px; margin-bottom: 4px; color: #333;"><strong>$1.</strong> $2</li>')
-    .replace(/^---$/gm, '<hr style="border: none; border-top: 1px solid #e5e5e5; margin: 24px 0;">')
-    .replace(/^(?!<[hplu]|<li|<hr|<em|<strong)(.+)$/gm, '<p style="margin-bottom: 12px; line-height: 1.6; color: #333;">$1</p>');
+function generatePdf(doc: PDFDocument, markdown: string, accountName: string): void {
+  const lines = markdown.split('\n');
+  let currentY = doc.y;
+  const pageWidth = doc.page.width - 100;
+  let inList = false;
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${accountName} - Diagnostic Report</title>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
-    
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
+  doc.fontSize(24).font('Helvetica-Bold').text(accountName, { align: 'left' });
+  doc.moveDown(0.5);
+  doc.fontSize(10).font('Helvetica').fillColor('#666666')
+    .text(`Diagnostic Report - Generated ${new Date().toLocaleDateString()}`, { align: 'left' });
+  doc.moveDown(1.5);
+  doc.fillColor('#000000');
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (doc.y > doc.page.height - 100) {
+      doc.addPage();
     }
-    
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 14px;
-      line-height: 1.6;
-      color: #333;
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 40px;
-      background: #fff;
-    }
-    
-    @media print {
-      body {
-        padding: 20px;
+
+    if (line.startsWith('# ')) {
+      if (inList) { doc.moveDown(0.5); inList = false; }
+      doc.moveDown(0.5);
+      doc.fontSize(20).font('Helvetica-Bold').fillColor('#1a1a1a')
+        .text(line.substring(2), { width: pageWidth });
+      doc.moveDown(0.5);
+      doc.fillColor('#000000');
+    } else if (line.startsWith('## ')) {
+      if (inList) { doc.moveDown(0.5); inList = false; }
+      doc.moveDown(0.8);
+      doc.fontSize(16).font('Helvetica-Bold').fillColor('#1a1a1a')
+        .text(line.substring(3), { width: pageWidth });
+      doc.moveDown(0.4);
+      doc.fillColor('#000000');
+    } else if (line.startsWith('### ')) {
+      if (inList) { doc.moveDown(0.5); inList = false; }
+      doc.moveDown(0.5);
+      doc.fontSize(13).font('Helvetica-Bold').fillColor('#1a1a1a')
+        .text(line.substring(4), { width: pageWidth });
+      doc.moveDown(0.3);
+      doc.fillColor('#000000');
+    } else if (line.startsWith('- ')) {
+      if (!inList) { doc.moveDown(0.3); inList = true; }
+      const bulletText = line.substring(2);
+      const processedText = processBoldItalic(bulletText);
+
+      doc.fontSize(11).font('Helvetica');
+      const bulletX = doc.x;
+      doc.text('•', bulletX, doc.y, { continued: true, width: 15 });
+      renderFormattedText(doc, processedText, bulletX + 15, pageWidth - 15);
+      doc.moveDown(0.2);
+    } else if (line.match(/^\d+\. /)) {
+      if (!inList) { doc.moveDown(0.3); inList = true; }
+      const match = line.match(/^(\d+)\. (.+)$/);
+      if (match) {
+        const number = match[1];
+        const text = match[2];
+        const processedText = processBoldItalic(text);
+
+        doc.fontSize(11).font('Helvetica');
+        const numberX = doc.x;
+        doc.text(`${number}.`, numberX, doc.y, { continued: true, width: 20 });
+        renderFormattedText(doc, processedText, numberX + 20, pageWidth - 20);
+        doc.moveDown(0.2);
       }
+    } else if (line === '---') {
+      if (inList) { doc.moveDown(0.5); inList = false; }
+      doc.moveDown(0.5);
+      doc.strokeColor('#e5e5e5').lineWidth(1)
+        .moveTo(doc.x, doc.y).lineTo(doc.x + pageWidth, doc.y).stroke();
+      doc.moveDown(0.5);
+      doc.strokeColor('#000000');
+    } else if (line.trim() !== '') {
+      if (inList) { doc.moveDown(0.3); inList = false; }
+      const processedText = processBoldItalic(line);
+      doc.fontSize(11).font('Helvetica').fillColor('#333333');
+      renderFormattedText(doc, processedText, doc.x, pageWidth);
+      doc.moveDown(0.4);
+      doc.fillColor('#000000');
+    } else {
+      if (inList) { inList = false; }
+      doc.moveDown(0.3);
     }
-    
-    ul, ol {
-      margin-bottom: 12px;
+  }
+}
+
+function processBoldItalic(text: string): Array<{ text: string; bold?: boolean; italic?: boolean }> {
+  const parts: Array<{ text: string; bold?: boolean; italic?: boolean }> = [];
+  let current = '';
+  let i = 0;
+
+  while (i < text.length) {
+    if (text.substring(i, i + 2) === '**') {
+      if (current) {
+        parts.push({ text: current });
+        current = '';
+      }
+      i += 2;
+      const end = text.indexOf('**', i);
+      if (end !== -1) {
+        parts.push({ text: text.substring(i, end), bold: true });
+        i = end + 2;
+      } else {
+        current += '**';
+      }
+    } else if (text[i] === '*' && text[i + 1] !== '*') {
+      if (current) {
+        parts.push({ text: current });
+        current = '';
+      }
+      i += 1;
+      const end = text.indexOf('*', i);
+      if (end !== -1 && text[end + 1] !== '*') {
+        parts.push({ text: text.substring(i, end), italic: true });
+        i = end + 1;
+      } else {
+        current += '*';
+      }
+    } else {
+      current += text[i];
+      i++;
     }
-  </style>
-</head>
-<body>
-  ${htmlContent}
-</body>
-</html>`;
+  }
+
+  if (current) {
+    parts.push({ text: current });
+  }
+
+  return parts;
+}
+
+function renderFormattedText(doc: PDFDocument, parts: Array<{ text: string; bold?: boolean; italic?: boolean }>, x: number, width: number): void {
+  doc.x = x;
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    const isLast = i === parts.length - 1;
+
+    if (part.bold) {
+      doc.font('Helvetica-Bold');
+    } else if (part.italic) {
+      doc.font('Helvetica-Oblique').fillColor('#666666');
+    } else {
+      doc.font('Helvetica').fillColor('#333333');
+    }
+
+    doc.text(part.text, { continued: !isLast, width });
+
+    if (part.italic) {
+      doc.fillColor('#333333');
+    }
+  }
+
+  doc.font('Helvetica');
 }
